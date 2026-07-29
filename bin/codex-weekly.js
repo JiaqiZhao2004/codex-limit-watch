@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
+import { realpathSync } from "node:fs";
 import { createInterface } from "node:readline";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 const DEFAULT_INTERVAL_SECONDS = 60;
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -417,7 +418,7 @@ export async function main(argv = process.argv.slice(2)) {
 
 const isEntryPoint =
   process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href;
+  realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
 
 if (isEntryPoint) {
   process.exitCode = await main();

@@ -1,0 +1,22 @@
+{
+  "name": "codex-limit-watch",
+  "version": "0.1.0",
+  "description": "Watch your Codex weekly usage limit from the terminal.",
+  "type": "module",
+  "bin": {
+    "codex-weekly": "./bin/codex-weekly.js"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "codex",
+    "cli",
+    "rate-limit",
+    "usage"
+  ],
+  "license": "MIT"
+}

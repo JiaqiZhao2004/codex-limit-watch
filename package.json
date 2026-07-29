@@ -1,7 +1,7 @@
 {
   "name": "codex-limit-watch",
-  "version": "0.1.0",
-  "description": "Watch your Codex weekly usage limit from the terminal.",
+  "version": "0.2.0",
+  "description": "Watch your Codex 5-hour and weekly usage limits from the terminal.",
   "type": "module",
   "bin": {
     "codex-weekly": "./bin/codex-weekly.js"

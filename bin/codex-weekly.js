@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const DEFAULT_INTERVAL_SECONDS = 60;
 const REQUEST_TIMEOUT_MS = 20_000;
+const FIVE_HOUR_MINUTES = 5 * 60;
 const WEEK_MINUTES = 7 * 24 * 60;
 
 export function parseArgs(argv) {
@@ -52,7 +53,7 @@ function parsePositiveNumber(value, optionName) {
   return number;
 }
 
-export function selectWeeklyLimit(response) {
+function collectLimitCandidates(response) {
   const snapshots = response?.rateLimitsByLimitId
     ? Object.values(response.rateLimitsByLimitId)
     : [];
@@ -95,38 +96,62 @@ export function selectWeeklyLimit(response) {
     throw new Error("Codex did not return a rate-limit window");
   }
 
-  const exactWeekly = candidates.filter(
-    (candidate) => candidate.windowDurationMins === WEEK_MINUTES,
+  return candidates;
+}
+
+function selectLimitCandidate(
+  candidates,
+  durationMins,
+  fallbackWindowName,
+  required = true,
+) {
+  const exactDuration = candidates.filter(
+    (candidate) => candidate.windowDurationMins === durationMins,
   );
-  if (exactWeekly.length > 0) {
-    return preferCodexLimit(exactWeekly);
+  if (exactDuration.length > 0) {
+    return preferCodexLimit(exactDuration);
   }
 
-  const durationCandidates = candidates.filter((candidate) =>
-    Number.isFinite(candidate.windowDurationMins),
+  const fallbackWindow = candidates.filter(
+    (candidate) => candidate.windowName === fallbackWindowName,
   );
-  if (durationCandidates.length > 0) {
-    durationCandidates.sort(
-      (left, right) =>
-        Math.abs(left.windowDurationMins - WEEK_MINUTES) -
-        Math.abs(right.windowDurationMins - WEEK_MINUTES),
+  if (fallbackWindow.length > 0) {
+    const unlabeledFallback = fallbackWindow.filter(
+      (candidate) => candidate.windowDurationMins === null,
     );
-    const closestDistance = Math.abs(
-      durationCandidates[0].windowDurationMins - WEEK_MINUTES,
-    );
-    return preferCodexLimit(
-      durationCandidates.filter(
-        (candidate) =>
-          Math.abs(candidate.windowDurationMins - WEEK_MINUTES) ===
-          closestDistance,
-      ),
-    );
+    if (unlabeledFallback.length > 0) {
+      return preferCodexLimit(unlabeledFallback);
+    }
   }
 
-  const secondary = candidates.filter(
-    (candidate) => candidate.windowName === "secondary",
+  if (!required) {
+    return null;
+  }
+
+  throw new Error(
+    `Codex did not return its ${durationMins}-minute rate-limit window`,
   );
-  return preferCodexLimit(secondary.length > 0 ? secondary : candidates);
+}
+
+export function selectRateLimits(response) {
+  const candidates = collectLimitCandidates(response);
+  return {
+    fiveHour: selectLimitCandidate(
+      candidates,
+      FIVE_HOUR_MINUTES,
+      "primary",
+      false,
+    ),
+    weekly: selectLimitCandidate(candidates, WEEK_MINUTES, "secondary"),
+  };
+}
+
+export function selectFiveHourLimit(response) {
+  return selectRateLimits(response).fiveHour;
+}
+
+export function selectWeeklyLimit(response) {
+  return selectRateLimits(response).weekly;
 }
 
 function preferCodexLimit(candidates) {
@@ -140,18 +165,17 @@ function clamp(value, minimum, maximum) {
   return Math.min(Math.max(value, minimum), maximum);
 }
 
-export function formatLimit(limit, now = new Date()) {
+function formatLimitWindow(label, limit, now) {
+  if (!limit) {
+    return [label, "Unavailable in current Codex response"];
+  }
+
   const resetDate = Number.isFinite(limit.resetsAt)
     ? new Date(limit.resetsAt * 1000)
     : null;
-  const title = limit.limitName
-    ? `Codex weekly limit · ${limit.limitName}`
-    : "Codex weekly limit";
   const lines = [
-    title,
-    "",
-    `${progressBar(limit.remainingPercent)}  ${limit.remainingPercent}% remaining`,
-    `${limit.usedPercent}% used`,
+    label,
+    `${progressBar(limit.remainingPercent)}  ${limit.remainingPercent}% remaining · ${limit.usedPercent}% used`,
   ];
 
   if (resetDate && !Number.isNaN(resetDate.valueOf())) {
@@ -162,13 +186,26 @@ export function formatLimit(limit, now = new Date()) {
     lines.push("Reset time unavailable");
   }
 
-  if (limit.planType) {
-    lines.push(`Plan: ${limit.planType}`);
-  }
   if (limit.reachedType) {
     lines.push(`Status: ${limit.reachedType}`);
   }
 
+  return lines;
+}
+
+export function formatLimits(limits, now = new Date()) {
+  const lines = [
+    "Codex limits",
+    "",
+    ...formatLimitWindow("5-hour limit", limits.fiveHour, now),
+    "",
+    ...formatLimitWindow("Weekly limit", limits.weekly, now),
+  ];
+  const planType = limits.fiveHour?.planType ?? limits.weekly.planType;
+
+  if (planType) {
+    lines.push("", `Plan: ${planType}`);
+  }
   lines.push(`Updated ${formatDate(now)}`);
   return lines.join("\n");
 }
@@ -241,7 +278,7 @@ class AppServerClient {
       clientInfo: {
         name: "codex_limit_watch",
         title: "Codex Limit Watch",
-        version: "0.1.0",
+        version: "0.2.0",
       },
     });
     this.notify("initialized", {});
@@ -319,7 +356,7 @@ class AppServerClient {
 function printHelp() {
   console.log(`Usage: codex-weekly [options]
 
-Watch your Codex weekly usage limit. Refreshes every 60 seconds by default.
+Watch your Codex 5-hour and weekly usage limits. Refreshes every 60 seconds by default.
 
 Options:
   --interval SECONDS  Set the refresh interval
@@ -361,15 +398,15 @@ export async function main(argv = process.argv.slice(2)) {
     do {
       try {
         const response = await client.request("account/rateLimits/read");
-        const limit = selectWeeklyLimit(response);
+        const limits = selectRateLimits(response);
 
         if (options.json) {
-          console.log(JSON.stringify(limit));
+          console.log(JSON.stringify(limits));
         } else {
           if (options.clear && process.stdout.isTTY) {
             process.stdout.write("\x1B[2J\x1B[H");
           }
-          console.log(formatLimit(limit));
+          console.log(formatLimits(limits));
           if (!options.once) {
             console.log(
               `\nRefreshing every ${options.intervalSeconds}s · Ctrl-C to stop`,

@@ -354,7 +354,7 @@ class AppServerClient {
 }
 
 function printHelp() {
-  console.log(`Usage: codex-weekly [options]
+  console.log(`Usage: codex-usage [options]
 
 Watch your Codex 5-hour and weekly usage limits. Refreshes every 60 seconds by default.
 
@@ -371,8 +371,8 @@ export async function main(argv = process.argv.slice(2)) {
   try {
     options = parseArgs(argv);
   } catch (error) {
-    console.error(`codex-weekly: ${error.message}`);
-    console.error("Run codex-weekly --help for usage.");
+    console.error(`codex-usage: ${error.message}`);
+    console.error("Run codex-usage --help for usage.");
     return 2;
   }
 
@@ -441,7 +441,7 @@ export async function main(argv = process.argv.slice(2)) {
 
     return 0;
   } catch (error) {
-    console.error(`codex-weekly: ${error.message}`);
+    console.error(`codex-usage: ${error.message}`);
     console.error(
       "Make sure the Codex CLI is installed and signed in (`codex login status`).",
     );

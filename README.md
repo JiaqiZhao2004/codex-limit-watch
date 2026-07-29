@@ -1,6 +1,6 @@
 # codex-limit-watch
 
-`codex-weekly` shows your current Codex 5-hour and weekly usage limits in the
+`codex-usage` shows your current Codex 5-hour and weekly usage limits in the
 terminal and refreshes them every minute.
 
 ```text
@@ -34,14 +34,14 @@ does not read, store, or transmit your credentials itself.
 Clone the repository, then:
 
 ```sh
-node bin/codex-weekly.js
+node bin/codex-usage.js
 ```
 
-To make `codex-weekly` available globally:
+To make `codex-usage` available globally:
 
 ```sh
 npm link
-codex-weekly
+codex-usage
 ```
 
 Press Ctrl-C to stop.
@@ -59,9 +59,9 @@ Press Ctrl-C to stop.
 Examples:
 
 ```sh
-codex-weekly --once
-codex-weekly --interval 30
-codex-weekly --json | jq
+codex-usage --once
+codex-usage --interval 30
+codex-usage --json | jq
 ```
 
 ## How it works
@@ -89,7 +89,7 @@ No package installation is required.
 
 ```sh
 npm test
-node bin/codex-weekly.js --once
+node bin/codex-usage.js --once
 ```
 
 ## License

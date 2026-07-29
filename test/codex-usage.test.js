@@ -7,7 +7,7 @@ import {
   selectFiveHourLimit,
   selectRateLimits,
   selectWeeklyLimit,
-} from "../bin/codex-weekly.js";
+} from "../bin/codex-usage.js";
 
 test("parses watch and one-shot options", () => {
   assert.deepEqual(parseArgs([]), {

@@ -2,7 +2,7 @@
 
 import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
-import { createInterface } from "node:readline";
+import { createInterface, emitKeypressEvents } from "node:readline";
 import { fileURLToPath } from "node:url";
 
 const DEFAULT_INTERVAL_SECONDS = 60;
@@ -167,7 +167,7 @@ function clamp(value, minimum, maximum) {
 
 function formatLimitWindow(label, limit, now) {
   if (!limit) {
-    return [label, "Unavailable in current Codex response"];
+    return [];
   }
 
   const resetDate = Number.isFinite(limit.resetsAt)
@@ -194,20 +194,36 @@ function formatLimitWindow(label, limit, now) {
 }
 
 export function formatLimits(limits, now = new Date()) {
-  const lines = [
-    "Codex limits",
-    "",
-    ...formatLimitWindow("5-hour limit", limits.fiveHour, now),
-    "",
-    ...formatLimitWindow("Weekly limit", limits.weekly, now),
-  ];
-  const planType = limits.fiveHour?.planType ?? limits.weekly.planType;
+  const windows = [
+    formatLimitWindow("5-hour limit", limits.fiveHour, now),
+    formatLimitWindow("Weekly limit", limits.weekly, now),
+  ].filter((window) => window.length > 0);
+  const lines = ["Codex limits", "", ...windows.flatMap((window, index) =>
+    index === 0 ? window : ["", ...window],
+  )];
+  const planType = limits.fiveHour?.planType ?? limits.weekly?.planType;
 
   if (planType) {
     lines.push("", `Plan: ${planType}`);
   }
   lines.push(`Updated ${formatDate(now)}`);
   return lines.join("\n");
+}
+
+export function formatSimpleLimit(limit, now = new Date(), updatedAt = now) {
+  if (!limit) {
+    return "";
+  }
+
+  const resetDate = Number.isFinite(limit.resetsAt)
+    ? new Date(limit.resetsAt * 1000)
+    : null;
+  const updated = formatElapsed(updatedAt, now);
+  const reset = resetDate && !Number.isNaN(resetDate.valueOf())
+    ? `Resets ${formatRelative(resetDate, now)}`
+    : "Reset time unavailable";
+
+  return `${progressBar(limit.remainingPercent)}  ${limit.remainingPercent}% · Updated ${updated} · ${reset}`;
 }
 
 function progressBar(percent, width = 20) {
@@ -237,6 +253,26 @@ function formatRelative(target, now) {
     return `in ${hours}h ${minutes}m`;
   }
   return `in ${minutes}m`;
+}
+
+function formatElapsed(start, end) {
+  let seconds = Math.max(0, Math.round((end - start) / 1000));
+  const days = Math.floor(seconds / 86_400);
+  seconds %= 86_400;
+  const hours = Math.floor(seconds / 3_600);
+  seconds %= 3_600;
+  const minutes = Math.floor(seconds / 60);
+
+  if (days > 0) {
+    return `${days}d ago`;
+  }
+  if (hours > 0) {
+    return `${hours}h ago`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m ago`;
+  }
+  return "just now";
 }
 
 class AppServerClient {
@@ -363,7 +399,34 @@ Options:
   --once              Print once and exit
   --json              Print one machine-readable JSON result and exit
   --no-clear          Do not clear the terminal between refreshes
+  Space               Switch between detailed and compact views while watching
   -h, --help          Show this help`);
+}
+
+function enableViewToggle(onToggle) {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    return () => {};
+  }
+
+  emitKeypressEvents(process.stdin);
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+  const onKeypress = (_input, key) => {
+    if (key?.name === "c" && key.ctrl) {
+      process.emit("SIGINT");
+      return;
+    }
+    if (key?.name === "space") {
+      onToggle();
+    }
+  };
+  process.stdin.on("keypress", onKeypress);
+
+  return () => {
+    process.stdin.off("keypress", onKeypress);
+    process.stdin.setRawMode(false);
+    process.stdin.pause();
+  };
 }
 
 export async function main(argv = process.argv.slice(2)) {
@@ -384,6 +447,35 @@ export async function main(argv = process.argv.slice(2)) {
   const client = new AppServerClient();
   let stopping = false;
   let wakeSleep = null;
+  let simpleView = false;
+  let latestLimits = null;
+  let latestUpdatedAt = null;
+  const render = () => {
+    if (!latestLimits) {
+      return;
+    }
+    if (options.clear && process.stdout.isTTY) {
+      process.stdout.write("\x1B[2J\x1B[H");
+    }
+    if (simpleView) {
+      process.stdout.write(
+        formatSimpleLimit(latestLimits.weekly, new Date(), latestUpdatedAt),
+      );
+    } else {
+      console.log(formatLimits(latestLimits, latestUpdatedAt));
+      if (!options.once) {
+        console.log(
+          `\nRefreshing every ${options.intervalSeconds}s · Space to switch views · Ctrl-C to stop`,
+        );
+      }
+    }
+  };
+  const disableViewToggle = options.once || options.json
+    ? () => {}
+    : enableViewToggle(() => {
+        simpleView = !simpleView;
+        render();
+      });
   const stop = () => {
     stopping = true;
     client.stop();
@@ -398,20 +490,13 @@ export async function main(argv = process.argv.slice(2)) {
     do {
       try {
         const response = await client.request("account/rateLimits/read");
-        const limits = selectRateLimits(response);
+        latestLimits = selectRateLimits(response);
+        latestUpdatedAt = new Date();
 
         if (options.json) {
-          console.log(JSON.stringify(limits));
+          console.log(JSON.stringify(latestLimits));
         } else {
-          if (options.clear && process.stdout.isTTY) {
-            process.stdout.write("\x1B[2J\x1B[H");
-          }
-          console.log(formatLimits(limits));
-          if (!options.once) {
-            console.log(
-              `\nRefreshing every ${options.intervalSeconds}s · Ctrl-C to stop`,
-            );
-          }
+          render();
         }
       } catch (error) {
         console.error(
@@ -419,6 +504,11 @@ export async function main(argv = process.argv.slice(2)) {
             error.message
           }`,
         );
+        // Keep the last successful data visible while allowing the compact
+        // view's "Updated ... ago" label to continue aging after failures.
+        if (!options.once && !options.json && simpleView) {
+          render();
+        }
         if (options.once) {
           return 1;
         }
@@ -447,6 +537,7 @@ export async function main(argv = process.argv.slice(2)) {
     );
     return 1;
   } finally {
+    disableViewToggle();
     client.stop();
     process.removeListener("SIGINT", stop);
     process.removeListener("SIGTERM", stop);

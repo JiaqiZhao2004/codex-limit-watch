@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   formatLimits,
+  formatSimpleLimit,
   parseArgs,
   selectFiveHourLimit,
   selectRateLimits,
@@ -145,7 +146,7 @@ test("formats both limits and their reset information", () => {
   assert.match(output, /Plan: plus/);
 });
 
-test("formats an unavailable five-hour window honestly", () => {
+test("omits an unavailable five-hour window", () => {
   const output = formatLimits({
     fiveHour: null,
     weekly: {
@@ -156,9 +157,33 @@ test("formats an unavailable five-hour window honestly", () => {
     },
   });
 
-  assert.match(
-    output,
-    /5-hour limit\nUnavailable in current Codex response/,
-  );
+  assert.doesNotMatch(output, /5-hour limit/);
   assert.match(output, /Weekly limit/);
+});
+
+test("formats the compact weekly view as one line", () => {
+  const now = new Date("2026-08-15T12:00:00Z");
+  const output = formatSimpleLimit(
+    {
+      remainingPercent: 77,
+      resetsAt: Math.floor(new Date("2026-08-20T10:00:00Z").getTime() / 1000),
+    },
+    now,
+    new Date("2026-08-15T11:59:00Z"),
+  );
+
+  assert.equal(
+    output,
+    "[███████████████░░░░░]  77% · Updated 1m ago · Resets in 4d 22h",
+  );
+});
+
+test("ages the compact view from the last successful update", () => {
+  const output = formatSimpleLimit(
+    { remainingPercent: 77, resetsAt: 1_800_388_800 },
+    new Date("2026-08-15T12:02:00Z"),
+    new Date("2026-08-15T12:00:00Z"),
+  );
+
+  assert.match(output, /Updated 2m ago/);
 });

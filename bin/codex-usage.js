@@ -458,9 +458,12 @@ export async function main(argv = process.argv.slice(2)) {
       process.stdout.write("\x1B[2J\x1B[H");
     }
     if (simpleView) {
-      process.stdout.write(
-        formatSimpleLimit(latestLimits.weekly, new Date(), latestUpdatedAt),
-      );
+      const now = new Date();
+      const lines = [
+        formatSimpleLimit(latestLimits.fiveHour, now, latestUpdatedAt),
+        formatSimpleLimit(latestLimits.weekly, now, latestUpdatedAt),
+      ].filter(Boolean);
+      process.stdout.write(lines.join("\n"));
     } else {
       console.log(formatLimits(latestLimits, latestUpdatedAt));
       if (!options.once) {

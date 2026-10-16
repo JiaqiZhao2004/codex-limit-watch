@@ -47,10 +47,11 @@ codex-usage
 Press Ctrl-C to stop.
 
 While watching, press Space to switch between the detailed view and a compact
-one-line weekly view:
+view with the 5-hour limit above the weekly limit:
 
 ```text
 [███████████████░░░░░]  77% · Updated 1m ago · Resets in 4d 22h
+[██████████████████░░]  91% · Updated 1m ago · Resets in 2h 14m
 ```
 
 ## Options

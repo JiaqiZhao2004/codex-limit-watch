@@ -14,6 +14,7 @@ Weekly limit
 [██████████████░░░░░░]  72% remaining · 28% used
 Resets Aug 5, 2026, 1:42:00 PM (in 6d 23h)
 
+Account: person@example.com
 Plan: plus
 Updated Jul 29, 2026, 2:17:00 PM
 
@@ -75,10 +76,11 @@ codex-usage --json | jq
 ## How it works
 
 The CLI starts `codex app-server` as a child process, performs the documented
-JSON-RPC initialization handshake, and requests `account/rateLimits/read`. It
-selects the 300-minute and seven-day Codex rate-limit windows and displays the
-percentage remaining and reset time for each. Both windows come from the same
-request.
+JSON-RPC initialization handshake, and requests `account/rateLimits/read` and
+`account/read`. It selects the 300-minute and seven-day Codex rate-limit windows
+and displays the percentage remaining and reset time for each. Both windows
+come from the same request. When Codex provides a ChatGPT account email, the
+detailed view shows it above the plan.
 
 Codex may omit a window that is not active or available for the signed-in
 account. In that case, the utility omits that window instead of guessing from

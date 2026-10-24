@@ -193,7 +193,7 @@ function formatLimitWindow(label, limit, now) {
   return lines;
 }
 
-export function formatLimits(limits, now = new Date()) {
+export function formatLimits(limits, now = new Date(), accountEmail = null) {
   const windows = [
     formatLimitWindow("5-hour limit", limits.fiveHour, now),
     formatLimitWindow("Weekly limit", limits.weekly, now),
@@ -203,8 +203,14 @@ export function formatLimits(limits, now = new Date()) {
   )];
   const planType = limits.fiveHour?.planType ?? limits.weekly?.planType;
 
+  if (accountEmail) {
+    lines.push("", `Account: ${accountEmail}`);
+  }
   if (planType) {
-    lines.push("", `Plan: ${planType}`);
+    if (!accountEmail) {
+      lines.push("");
+    }
+    lines.push(`Plan: ${planType}`);
   }
   lines.push(`Updated ${formatDate(now)}`);
   return lines.join("\n");
@@ -449,6 +455,7 @@ export async function main(argv = process.argv.slice(2)) {
   let wakeSleep = null;
   let simpleView = false;
   let latestLimits = null;
+  let latestAccountEmail = null;
   let latestUpdatedAt = null;
   const render = () => {
     if (!latestLimits) {
@@ -465,7 +472,7 @@ export async function main(argv = process.argv.slice(2)) {
       ].filter(Boolean);
       process.stdout.write(lines.join("\n"));
     } else {
-      console.log(formatLimits(latestLimits, latestUpdatedAt));
+      console.log(formatLimits(latestLimits, latestUpdatedAt, latestAccountEmail));
       if (!options.once) {
         console.log(
           `\nRefreshing every ${options.intervalSeconds}s · Space to switch views · Ctrl-C to stop`,
@@ -494,6 +501,16 @@ export async function main(argv = process.argv.slice(2)) {
       try {
         const response = await client.request("account/rateLimits/read");
         latestLimits = selectRateLimits(response);
+        try {
+          const accountResponse = await client.request("account/read", {
+            refreshToken: false,
+          });
+          latestAccountEmail = accountResponse?.account?.type === "chatgpt"
+            ? accountResponse.account.email
+            : null;
+        } catch {
+          latestAccountEmail = null;
+        }
         latestUpdatedAt = new Date();
 
         if (options.json) {

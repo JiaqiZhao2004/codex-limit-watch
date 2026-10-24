@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   formatLimits,
@@ -144,6 +149,62 @@ test("formats both limits and their reset information", () => {
   assert.match(output, /25% used/);
   assert.match(output, /in 1d 0h/);
   assert.match(output, /Plan: plus/);
+});
+
+test("shows the signed-in account email immediately above the plan", () => {
+  const output = formatLimits(
+    {
+      fiveHour: null,
+      weekly: {
+        usedPercent: 25,
+        remainingPercent: 75,
+        resetsAt: null,
+        planType: "team",
+      },
+    },
+    new Date("2026-10-24T13:22:30Z"),
+    "person@example.com",
+  );
+
+  assert.match(output, /Account: person@example\.com\nPlan: team\nUpdated /);
+});
+
+test("one-shot output reads the signed-in Codex account", () => {
+  const directory = mkdtempSync(join(tmpdir(), "codex-usage-test-"));
+  const fakeCodex = join(directory, "codex");
+  writeFileSync(fakeCodex, `#!/usr/bin/env node
+const readline = require("node:readline");
+readline.createInterface({ input: process.stdin }).on("line", (line) => {
+  const request = JSON.parse(line);
+  if (request.id === undefined) return;
+  const result = request.method === "initialize" ? {} :
+    request.method === "account/rateLimits/read" ? {
+      rateLimits: {
+        primary: null,
+        secondary: { usedPercent: 25, windowDurationMins: 10080 },
+        planType: "team"
+      }
+    } : request.method === "account/read" ? {
+      account: { type: "chatgpt", email: "person@example.com", planType: "team" },
+      requiresOpenaiAuth: true
+    } : null;
+  process.stdout.write(JSON.stringify({ id: request.id, result }) + "\\n");
+});
+`);
+  chmodSync(fakeCodex, 0o755);
+
+  try {
+    const cli = fileURLToPath(new URL("../bin/codex-usage.js", import.meta.url));
+    const result = spawnSync(process.execPath, [cli, "--once"], {
+      env: { ...process.env, PATH: `${directory}:${process.env.PATH}` },
+      encoding: "utf8",
+      timeout: 5_000,
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Account: person@example\.com\nPlan: team\nUpdated /);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("omits an unavailable five-hour window", () => {
